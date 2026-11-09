@@ -133,8 +133,9 @@ function bookingsOn(date, cat) {
   return (S.cache ? S.cache.bookings : []).filter(b => b.date === date && order.includes(b.item))
     .sort((a, b) => a.hour - b.hour || order.indexOf(a.item) - order.indexOf(b.item));
 }
-function renderCats() {
-  $('#cats').innerHTML = Core.CATS.filter(c => itemsOf(c.id).length).map(c =>
+function renderCats() {   // 항목이 있는 분류가 둘 이상일 때만 탭을 보인다
+  const cats = Core.CATS.filter(c => itemsOf(c.id).length);
+  $('#cats').innerHTML = cats.length < 2 ? '' : cats.map(c =>
     `<button class="cat${c.id === S.cat ? ' on' : ''}" data-act="cat" data-cat="${c.id}" aria-pressed="${c.id === S.cat}">${esc(c.name)}</button>`).join('');
 }
 function render() {

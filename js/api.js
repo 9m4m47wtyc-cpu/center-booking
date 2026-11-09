@@ -28,15 +28,17 @@ const DemoStore = {
       name, isAdmin: i === 0, pinHash: '', salt: '', fails: 0, locked: false
     }));
     const items = Core.SAMPLE_ITEMS.map(([cat, name], i) => ({ id: 'i' + (i + 1), cat: Core.CATS.find(c => c.name === cat).id, name }));
-    // 다른 사람 예약 예시: 분류마다 하나씩, 가장 가까운 빈 시간에
+    // 다른 사람 예약 예시: 분류마다 첫 항목 + 두 번째 항목에 하나씩, 가장 가까운 빈 시간에
     const now = Core.nowKST();
     const bookings = [];
-    Core.CATS.forEach((c, k) => {
-      const it = items.find(x => x.cat === c.id), hour = 14 + k;
+    const picks = Core.CATS.map(c => items.find(i => i.cat === c.id)).filter(Boolean);
+    if (items[1] && !picks.includes(items[1])) picks.push(items[1]);
+    picks.forEach((it, k) => {
+      const c = Core.catById(it.cat), hour = 14 + k;
       for (let d = 0; d < 7; d++) {
         const date = Core.addDays(now.date, d);
         if (Core.slotStatus(date, hour, c.id) !== 'ok') continue;
-        bookings.push({ id: randHex(), date, hour, item: it.id, purpose: c.purposes[0], owner: '체험 직원 2', created: now.stamp, updated: '' });
+        bookings.push({ id: randHex(), date, hour, item: it.id, purpose: c.purposes[k % c.purposes.length], owner: '체험 직원 2', created: now.stamp, updated: '' });
         break;
       }
     });

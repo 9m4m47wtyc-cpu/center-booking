@@ -82,14 +82,16 @@ const staff = call({ action: 'login', name: '이직원', pin: '0000' });
 assert(admin.ok && admin.isAdmin && staff.ok && !staff.isAdmin);
 assert.strictEqual(call({ action: 'list', token: staff.token.slice(0, -1) + 'x', from: '2026-01-01', to: '2026-01-02' }).code, 'auth');
 
-/* 항목: 예시 5개, 'i'로 시작하는 코드가 시트에 적힌다 */
+/* 항목: 처음 5개(상담실1~3·집단상담실·차량). 관리자가 검사도구 줄을 더하면 그 분류도 생긴다. 'i'로 시작하는 코드가 시트에 적힌다 */
 let day = C.addDays(C.nowKST().date, 1);
 while (C.weekday(day) === 0 || C.weekday(day) === 6) day = C.addDays(day, 1);   // 평일 (10~20시가 다 열려 있는 날)
+const itemTab = sheets.get('항목');
+itemTab.getRange(itemTab.getLastRow() + 1, 1, 1, 2).setValues([['검사도구', 'TAT 카드']]);
 let res = call({ action: 'list', token: staff.token, from: day, to: day });
-assert.strictEqual(res.items.length, 5);
+assert.deepStrictEqual(res.items.map(i => i.name), ['상담실1', '상담실2', '상담실3', '집단상담실', '차량', 'TAT 카드']);
 assert(res.items.every(i => /^i[0-9a-f]{7}$/.test(i.id)));
 assert.strictEqual(cell('항목', 2, 3), res.items[0].id);
-const [room1, room2] = res.items.filter(i => i.cat === 'room'), tool = res.items.find(i => i.cat === 'tool');
+const [room1, room2] = res.items.filter(i => i.cat === 'room'), car = res.items.find(i => i.cat === 'car');
 assert(call({ action: 'list', token: staff.token, from: day, to: C.addDays(day, 41) }).ok);              // 달력 한 장(6주)은 된다
 assert.strictEqual(call({ action: 'list', token: staff.token, from: day, to: C.addDays(day, 43) }).ok, false);
 
@@ -97,8 +99,8 @@ assert.strictEqual(call({ action: 'list', token: staff.token, from: day, to: C.a
 const book = (who, it, hour, purpose, date = day) => call({ action: 'book', token: who.token, date, hour, item: it.id, purpose });
 assert(book(staff, room1, 10, '회의').ok);
 assert.strictEqual(book(admin, room1, 10, '회의').code, 'taken');
-assert.strictEqual(book(staff, tool, 11, '회의').error, '용도를 골라 주세요.');   // 검사도구 용도에는 '회의'가 없다
-assert(book(staff, tool, 11, '검사 실시').ok);
+assert.strictEqual(book(staff, car, 11, '회의').error, '용도를 골라 주세요.');   // 차량 용도에는 '회의'가 없다
+assert(book(staff, car, 11, '가정방문').ok);
 assert.strictEqual(book(staff, room1, 10, '회의', notSunday(C.addDays(day, 40))).code, 'far');
 assert.strictEqual(book(staff, room1, 22, '회의').code, 'closed');
 assert.strictEqual(cell('예약', 2, 2), day);   // 날짜가 시트에서 날짜 값으로 바뀌지 않고 글자로 남았다
@@ -112,9 +114,9 @@ assert.deepStrictEqual(res.bookings.map(b => b.date), [day, day]);
 const mine = res.bookings.find(b => b.item === room1.id);
 
 /* 관리자가 남의 예약을 옮기면 기록 탭에 남는다. 옮긴 칸은 다른 사람이 못 잡는다 */
-assert(call({ action: 'update', token: admin.token, id: mine.id, date: day, hour: 12, item: room2.id, purpose: '교육' }).ok);
+assert(call({ action: 'update', token: admin.token, id: mine.id, date: day, hour: 12, item: room2.id, purpose: '부모상담' }).ok);
 assert.strictEqual(sheets.get('기록').getLastRow(), 2);
-assert.match(cell('기록', 2, 6), /12:00 회의실 \(교육\)$/);
+assert.match(cell('기록', 2, 6), /12:00 상담실2 \(부모상담\)$/);
 assert.strictEqual(book(admin, room2, 12, '회의').code, 'taken');
 assert.strictEqual(call({ action: 'cancel', token: staff.token, id: book(admin, room1, 15, '회의').booking.id }).code, 'forbidden');
 
@@ -130,8 +132,7 @@ assert(call({ action: 'resetPin', token: admin.token, target: '이직원' }).ok)
 assert.deepStrictEqual(call({ action: 'staff' }).staff[1], { name: '이직원', hasPin: false, locked: false });
 
 /* 항목 행을 통째로 복사해 코드가 겹치면 새 코드를 받는다 */
-const items = sheets.get('항목');
-items.getRange(7, 1, 1, 3).setValues([items.getRange(2, 1, 1, 3).getValues()[0]]);
-assert.strictEqual(new Set(call({ action: 'list', token: admin.token, from: day, to: day }).items.map(i => i.id)).size, 6);
+itemTab.getRange(itemTab.getLastRow() + 1, 1, 1, 3).setValues([itemTab.getRange(2, 1, 1, 3).getValues()[0]]);
+assert.strictEqual(new Set(call({ action: 'list', token: admin.token, from: day, to: day }).items.map(i => i.id)).size, 7);
 
 console.log('모든 점검 통과');
