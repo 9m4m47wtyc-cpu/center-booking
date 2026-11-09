@@ -74,7 +74,8 @@ button { font: inherit; cursor: pointer; }
 .bk.mine { background: var(--mine-bg); color: var(--mine-ink); font-weight: 700; }
 .more { font-size: 10.5px; color: var(--muted); padding: 0 4px; }
 @media (min-width: 600px) { .day { min-height: 100px; padding: 6px 5px; } .bk, .more { font-size: 12px; } }
-@media (max-width: 599px) { .bk .nm { display: none; } }   /* 휴대폰 칸은 좁아서 시간만 (이름은 날짜를 눌러 본다) */
+@media (max-width: 599px) { .bk .opt { display: none; } }   /* 휴대폰 칸은 좁아서 덧붙인 글씨는 숨긴다 (날짜를 눌러 본다) */
+.bk.ev { background: #ede9fe; color: #5b21b6; }
 
 /* 그날 시간표 (아래 창 안) */
 .day-grid { margin: 0 -6px; }
@@ -97,6 +98,16 @@ table.grid td { padding: 0; }
 .cell.booked.past { opacity: .55; }
 .closed-day { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 17px; line-height: 1.6; }
 .loading { text-align: center; padding: 40px; color: var(--muted); }
+
+/* 센터일정 목록 (아래 창 안) */
+.ev-list { display: flex; flex-direction: column; gap: 6px; }
+.ev-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; padding: 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); text-align: left; }
+.ev-row:hover { border-color: var(--free-plus); }
+.ev-time { font-size: 14px; font-weight: 700; color: #5b21b6; }
+.ev-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-owner { font-size: 13px; color: var(--muted); }
+.empty { margin: 0; padding: 24px 0; text-align: center; color: var(--muted); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 16px; font-size: 13px; color: var(--muted); }
 .sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 4px; }

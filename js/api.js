@@ -21,6 +21,7 @@ const DemoStore = {
     if (this.data) return;
     try { this.data = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { this.data = null; }
     if (!this.data) this.data = this.seed();
+    if (!this.data.events) this.data.events = [];   // 센터일정이 생기기 전에 만든 체험 자료
   },
   save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); } catch (e) { /* 저장 못 해도 계속 */ } },
   seed() {
@@ -42,7 +43,11 @@ const DemoStore = {
         break;
       }
     });
-    return { secret: randHex() + randHex(), staff, items, bookings, log: [] };
+    const events = [   // 센터일정 예시
+      { id: randHex(), date: Core.addDays(now.date, 1), time: '10:00', title: '월례회의', owner: '체험 관리자', created: now.stamp, updated: '' },
+      { id: randHex(), date: Core.addDays(now.date, 3), time: '', title: '외부 교육', owner: '체험 직원 2', created: now.stamp, updated: '' }
+    ];
+    return { secret: randHex() + randHex(), staff, items, bookings, events, log: [] };
   },
   reset() { this.data = this.seed(); this.save(); },
 
@@ -58,6 +63,11 @@ const DemoStore = {
   addBooking(b) { this.data.bookings.push(b); this.save(); },
   updateBooking() { this.save(); },
   removeBooking(id) { this.data.bookings = this.data.bookings.filter(b => b.id !== id); this.save(); },
+  listEvents(from, to) { return this.data.events.filter(e => e.date >= from && e.date <= to); },
+  findEvent(id) { return this.data.events.find(e => e.id === id) || null; },
+  addEvent(e) { this.data.events.push(e); this.save(); },
+  updateEvent() { this.save(); },
+  removeEvent(id) { this.data.events = this.data.events.filter(e => e.id !== id); this.save(); },
   addLog(x) { this.data.log.push(x); this.save(); }
 };
 

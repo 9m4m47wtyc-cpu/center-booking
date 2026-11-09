@@ -8,6 +8,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const SESSION_KEY = 'pub.session';
 const LAST_NAME_KEY = 'pub.lastName';
 const CAT_KEY = 'pub.cat';
+const EVENTS = 'events';   // 센터일정 탭 (예약 분류가 아닌 탭)
 
 const S = {
   session: null,     // { token, name, isAdmin }
@@ -119,8 +120,8 @@ async function load(force) {
     const res = await Api.call('list', { token: S.session.token, from, to });
     if (monthRange(S.month).from !== from) return;    // 그 사이에 다른 달로 옮겨 간 경우
     S.items = res.items;
-    if (!itemsOf(S.cat).length) { const c = Core.CATS.find(c => itemsOf(c.id).length); if (c) S.cat = c.id; }
-    S.cache = { from, to, bookings: res.bookings };
+    if (S.cat !== EVENTS && !itemsOf(S.cat).length) { const c = Core.CATS.find(c => itemsOf(c.id).length); S.cat = c ? c.id : EVENTS; }
+    S.cache = { from, to, bookings: res.bookings, events: res.events };
   } catch (e) { handleErr(e); }
   finally { S.loading = false; if (S.session) render(); }
 }
@@ -133,27 +134,37 @@ function bookingsOn(date, cat) {
   return (S.cache ? S.cache.bookings : []).filter(b => b.date === date && order.includes(b.item))
     .sort((a, b) => a.hour - b.hour || order.indexOf(a.item) - order.indexOf(b.item));
 }
-function renderCats() {   // 항목이 있는 분류가 둘 이상일 때만 탭을 보인다
-  const cats = Core.CATS.filter(c => itemsOf(c.id).length);
-  $('#cats').innerHTML = cats.length < 2 ? '' : cats.map(c =>
+/* 그날 센터일정: 종일 먼저, 그다음 시간 순 */
+function eventsOn(date) {
+  return (S.cache ? S.cache.events : []).filter(e => e.date === date).sort((a, b) => a.time.localeCompare(b.time));
+}
+function findEvent(id) { return S.cache && S.cache.events.find(e => e.id === id); }
+function renderCats() {   // 항목이 있는 분류 + 센터일정. 탭이 하나뿐이면 숨긴다
+  const tabs = Core.CATS.filter(c => itemsOf(c.id).length).concat([{ id: EVENTS, name: '센터일정' }]);
+  $('#cats').innerHTML = tabs.length < 2 ? '' : tabs.map(c =>
     `<button class="cat${c.id === S.cat ? ' on' : ''}" data-act="cat" data-cat="${c.id}" aria-pressed="${c.id === S.cat}">${esc(c.name)}</button>`).join('');
 }
 function render() {
   const today = Core.nowKST().date;
   $('#monthText').innerHTML = `${+S.month.slice(0, 4)}년 ${+S.month.slice(5)}월` + (S.month === today.slice(0, 7) ? '<span class="badge">이번 달</span>' : '');
   renderCats();
-  const cal = $('#cal');
+  const cal = $('#cal'), isEv = S.cat === EVENTS;
+  $('.legend').hidden = isEv;
   if (!S.cache) { cal.innerHTML = '<div class="loading">달력을 불러오는 중…</div>'; return; }
-  if (!itemsOf(S.cat).length) { cal.innerHTML = '<div class="closed-day">예약할 항목이 아직 없어요.<br>관리자가 구글 시트의 \'항목\' 탭에 적어 주세요.</div>'; return; }
+  if (!isEv && !itemsOf(S.cat).length) { cal.innerHTML = '<div class="closed-day">예약할 항목이 아직 없어요.<br>관리자가 구글 시트의 \'항목\' 탭에 적어 주세요.</div>'; return; }
+  /* 칸 안 글씨: 예약은 '10시 상담실1', 일정은 '14:00 월례회의' (휴대폰에서는 .opt 부분을 숨긴다) */
+  const chip = isEv
+    ? e => `<span class="bk ev">${e.time ? `<span class="opt">${esc(e.time)} </span>` : ''}${esc(e.title)}</span>`
+    : b => `<span class="bk${b.owner === S.session.name ? ' mine' : ''}">${b.hour}시<span class="opt"> ${esc(itemById(b.item).name)}</span></span>`;
   let days = '';
   for (let i = 0; i < 42; i++) {
-    const d = Core.addDays(S.cache.from, i), list = bookingsOn(d, S.cat);
+    const d = Core.addDays(S.cache.from, i), list = isEv ? eventsOn(d) : bookingsOn(d, S.cat);
     const shown = list.length > 3 ? list.slice(0, 2) : list;
     const cls = ['day', d.slice(0, 7) !== S.month && 'out', d < today && 'past', i % 7 === 0 && 'sun', i % 7 === 6 && 'sat', d === today && 'today']
       .filter(Boolean).join(' ');
-    days += `<button class="${cls}" data-act="day" data-date="${d}" aria-label="${esc(dateLabel(d))}, 예약 ${list.length}건">`
+    days += `<button class="${cls}" data-act="day" data-date="${d}" aria-label="${esc(dateLabel(d))}, ${isEv ? '일정' : '예약'} ${list.length}건">`
       + `<span class="num">${+d.slice(8)}</span>`
-      + shown.map(b => `<span class="bk${b.owner === S.session.name ? ' mine' : ''}">${b.hour}시<span class="nm"> ${esc(itemById(b.item).name)}</span></span>`).join('')
+      + shown.map(chip).join('')
       + (list.length > shown.length ? `<span class="more">+${list.length - shown.length}건</span>` : '')
       + '</button>';
   }
@@ -164,6 +175,7 @@ function pickCat(btn) { S.cat = btn.dataset.cat; store(CAT_KEY, S.cat); render()
 
 /* ---------- 그날 시간표 (아래에서 올라오는 창) ---------- */
 function openDay(date, keepScroll) {
+  if (S.cat === EVENTS) return openEvents(date, keepScroll);
   if (!Core.hoursFor(date).length) { toast('일요일은 예약할 수 없어요.', true); return; }
   S.day = date;
   const cols = itemsOf(S.cat);
@@ -318,6 +330,88 @@ async function doEdit(btn) {
   } catch (e) { handleErr(e, 'sheet'); btn.disabled = false; load(true); }
 }
 
+/* ---------- 센터일정 (아래 창) ---------- */
+function openEvents(date, keepScroll) {
+  S.day = date;
+  const list = eventsOn(date), canAdd = date >= Core.nowKST().date;
+  openSheet(`
+    <h2>${esc(dateLabel(date))}</h2>
+    <p class="info">센터일정${canAdd ? '' : ' · 지난 날짜'}</p>
+    <div class="ev-list">${list.length ? list.map(e => `
+      <button class="ev-row" data-act="evDetail" data-id="${esc(e.id)}">
+        <span class="ev-time">${e.time ? esc(e.time) : '종일'}</span><span class="ev-title">${esc(e.title)}</span><span class="ev-owner">${esc(e.owner)}</span>
+      </button>`).join('') : '<p class="empty">이날 일정이 없어요.</p>'}</div>
+    <div class="row">
+      <button class="btn" data-act="close">닫기</button>
+      ${canAdd ? `<button class="btn primary" data-act="evNew" data-date="${date}">+ 일정 넣기</button>` : ''}
+    </div>`);
+  if (keepScroll) $('#sheetBody').scrollTop = S.dayScroll;
+}
+function openEventDetail(btn) {
+  const e = findEvent(btn.dataset.id); if (!e) return;
+  S.dayScroll = $('#sheetBody').scrollTop;
+  const mine = e.owner === S.session.name;
+  const edit = (mine || S.session.isAdmin) && e.date >= Core.nowKST().date;
+  openSheet(`
+    <h2>${esc(e.title)}</h2>
+    <p class="info">센터일정 · ${esc(dateLabel(e.date))} · ${e.time ? esc(e.time) : '종일'}</p>
+    <dl><dt>넣은 사람</dt><dd>${esc(e.owner)}${mine ? ' (나)' : ''}</dd></dl>
+    ${edit && !mine ? '<p class="note">관리자 권한으로 다른 사람의 일정을 바꾸거나 지우면 시트의 \'기록\' 탭에 남아요.</p>' : ''}
+    <p class="msg" role="alert"></p>
+    ${edit ? `<div class="row">
+                <button class="btn danger" data-act="evAskDelete" data-id="${esc(e.id)}">지우기</button>
+                <button class="btn primary" data-act="evEdit" data-id="${esc(e.id)}">바꾸기</button>
+              </div>` : ''}
+    <div class="row"><button class="btn" data-act="back">← 뒤로</button></div>`);
+}
+/* 넣기·바꾸기 같은 창 (e가 없으면 새 일정) */
+function openEventForm(e, date) {
+  openSheet(`
+    <h2>${e ? '일정 바꾸기' : '일정 넣기'}</h2>
+    <p class="info">센터일정 · 내담자 이름·학교명 같은 정보는 적지 않아요</p>
+    <label class="field">제목 <input type="text" id="evTitle" maxlength="${Core.MAX_TITLE}" value="${e ? esc(e.title) : ''}" placeholder="예: 월례회의"></label>
+    <label class="field">날짜 <input type="date" id="evDate" value="${e ? e.date : date}" min="${Core.nowKST().date}"></label>
+    <label class="field">시간 (비우면 종일) <input type="time" id="evTime" value="${e ? e.time : ''}"></label>
+    <p class="msg" role="alert"></p>
+    <div class="row">
+      <button class="btn" data-act="back">← 뒤로</button>
+      <button class="btn primary" data-act="evSave"${e ? ` data-id="${esc(e.id)}"` : ''}>저장</button>
+    </div>`);
+}
+async function evSave(btn) {
+  const id = btn.dataset.id, title = $('#evTitle').value.trim(), date = $('#evDate').value, time = $('#evTime').value;
+  if (!title) { sheetMsg('제목을 적어 주세요.'); return; }
+  if (!Core.parseDate(date)) { sheetMsg('날짜를 골라 주세요.'); return; }
+  btn.disabled = true;
+  try {
+    await Api.call(id ? 'updateEvent' : 'addEvent', { token: S.session.token, id, date, time, title });
+    toast(id ? '일정을 바꿨어요.' : '일정을 넣었어요.');
+    const sameDay = date === S.day;
+    S.day = date;
+    if (date < S.cache.from || date > S.cache.to) S.month = date.slice(0, 7);   // 달력에 안 보이는 날로 옮긴 경우
+    await load(true); openDay(S.day, sameDay);
+  } catch (e) { handleErr(e, 'sheet'); btn.disabled = false; load(true); }
+}
+function evAskDelete(btn) {
+  const e = findEvent(btn.dataset.id); if (!e) return;
+  openSheet(`
+    <h2>일정을 지울까요?</h2>
+    <p class="info">${esc(dateLabel(e.date))} · ${e.time ? esc(e.time) : '종일'}<br>${esc(e.title)}</p>
+    <p class="msg" role="alert"></p>
+    <div class="row">
+      <button class="btn" data-act="back">그대로 두기</button>
+      <button class="btn primary" data-act="evDelete" data-id="${esc(e.id)}" style="background:var(--danger);border-color:var(--danger)">지우기</button>
+    </div>`);
+}
+async function evDelete(btn) {
+  btn.disabled = true;
+  try {
+    await Api.call('deleteEvent', { token: S.session.token, id: btn.dataset.id });
+    toast('일정을 지웠어요.');
+    await load(true); backToDay();
+  } catch (e) { handleErr(e, 'sheet'); btn.disabled = false; load(true); }
+}
+
 /* ---------- 내 메뉴 ---------- */
 function openMenu() {
   const a = S.session.isAdmin;
@@ -364,6 +458,8 @@ const ACTIONS = {
   today: () => { S.month = Core.nowKST().date.slice(0, 7); load(false); },
   cat: pickCat, day: btn => openDay(btn.dataset.date), cell: onCell,
   doBook, edit: openEdit, doEdit, askCancel, doCancel,
+  evNew: btn => openEventForm(null, btn.dataset.date), evEdit: btn => { const e = findEvent(btn.dataset.id); if (e) openEventForm(e); },
+  evDetail: openEventDetail, evSave, evAskDelete, evDelete,
   refresh: () => { closeSheet(); load(true); toast('새로 불러왔어요.'); },
   resetMenu: openReset, doReset,
   demoReset: () => { DemoStore.load(); DemoStore.reset(); logout(); },

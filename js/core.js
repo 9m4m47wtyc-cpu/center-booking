@@ -20,6 +20,7 @@ var Core = (function () {
   var MAX_FAILS = 5;         // 비밀번호 5번 틀리면 잠김
   var TOKEN_DAYS = 30;       // 한 번 로그인하면 30일 유지
   var MAX_LIST_DAYS = 42;    // 달력 한 장(6주)
+  var MAX_TITLE = 40;        // 센터일정 제목 글자 수
   var PIN_ROUNDS = 300;
 
   function catById(id) { for (var i = 0; i < CATS.length; i++) if (CATS[i].id === id) return CATS[i]; return null; }
@@ -163,6 +164,8 @@ var Core = (function () {
   /* ---------- 요청 처리 ---------- */
   function fail(error, code) { return { ok: false, error: error, code: code || 'error' }; }
   function pub(b) { return { id: b.id, date: b.date, hour: b.hour, item: b.item, purpose: b.purpose, owner: b.owner }; }
+  function pubEvent(ev) { return { id: ev.id, date: ev.date, time: ev.time, title: ev.title, owner: ev.owner }; }
+  function describeEvent(ev) { return ev.date + ' ' + (ev.time || '종일') + ' ' + ev.title; }
   function describe(b, store) {
     var it = store.findItem(b.item);
     return b.date + ' ' + pad(b.hour) + ':00 ' + (it ? it.name : b.item) + ' (' + b.purpose + ')';
@@ -178,10 +181,23 @@ var Core = (function () {
     return '';
   }
 
+  /* 센터일정: 날짜(오늘부터)·시간('HH:MM', 비우면 종일)·제목(40자)을 확인하고 다듬는다 */
+  function checkEvent(req, today) {
+    if (!parseDate(req.date)) return '날짜가 올바르지 않아요.';
+    if (req.date < today) return '지난 날짜에는 일정을 넣을 수 없어요.';
+    req.time = String(req.time || '');
+    if (req.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(req.time)) return '시간이 올바르지 않아요.';
+    req.title = String(req.title || '').replace(/\s+/g, ' ').trim();
+    if (!req.title) return '제목을 적어 주세요.';
+    if (req.title.length > MAX_TITLE) return '제목은 ' + MAX_TITLE + '자까지 적을 수 있어요.';
+    if (/^[=+\-@]/.test(req.title)) return '제목은 = + - @ 로 시작할 수 없어요.';   // 구글 시트가 수식으로 실행하지 않게
+    return '';
+  }
+
   /* req: { action, ... }  store: 저장소  nowMs: 지금 시각  rand(): 무작위 문자열 */
   function handle(req, store, nowMs, rand) {
     req = req || {};
-    var now = nowKST(nowMs), me, b, err, st;
+    var now = nowKST(nowMs), me, b, ev, err, st;
     switch (req.action) {
 
       case 'staff':
@@ -219,7 +235,8 @@ var Core = (function () {
       case 'list': {
         if (!parseDate(req.from) || !parseDate(req.to) || req.to < req.from) return fail('날짜 범위가 올바르지 않아요.');
         if (req.to > addDays(req.from, MAX_LIST_DAYS)) return fail('한 번에 6주까지만 볼 수 있어요.');
-        return { ok: true, now: now, items: store.listItems(), bookings: store.listBookings(req.from, req.to).map(pub) };
+        return { ok: true, now: now, items: store.listItems(), bookings: store.listBookings(req.from, req.to).map(pub),
+                 events: store.listEvents(req.from, req.to).map(pubEvent) };
       }
 
       case 'book': {
@@ -261,6 +278,34 @@ var Core = (function () {
         return { ok: true, booking: pub(b) };
       }
 
+      /* 센터일정: 직원 누구나 넣고, 넣은 사람·관리자만 바꾸거나 지운다. 같은 날·같은 시간에 여럿 있어도 된다 */
+      case 'addEvent': {
+        err = checkEvent(req, now.date); if (err) return fail(err);
+        ev = { id: rand(), date: req.date, time: req.time, title: req.title, owner: me.name, created: now.stamp, updated: '' };
+        store.addEvent(ev);
+        return { ok: true, event: pubEvent(ev) };
+      }
+
+      case 'updateEvent':
+      case 'deleteEvent': {
+        ev = store.findEvent(String(req.id || ''));
+        if (!ev) return fail('이미 지워졌거나 없는 일정이에요.', 'gone');
+        var evOwner = ev.owner === me.name;
+        if (!evOwner && !me.isAdmin) return fail('자기가 넣은 일정만 바꾸거나 지울 수 있어요.', 'forbidden');
+        if (ev.date < now.date) return fail('지난 일정은 바꾸거나 지울 수 없어요.', 'past');
+        var evBefore = describeEvent(ev);
+        if (req.action === 'deleteEvent') {
+          store.removeEvent(ev.id);
+          if (!evOwner) store.addLog({ time: now.stamp, actor: me.name, action: '일정 지우기', owner: ev.owner, before: evBefore, after: '' });
+          return { ok: true };
+        }
+        err = checkEvent(req, now.date); if (err) return fail(err);
+        ev.date = req.date; ev.time = req.time; ev.title = req.title; ev.updated = now.stamp;
+        store.updateEvent(ev);
+        if (!evOwner) store.addLog({ time: now.stamp, actor: me.name, action: '일정 바꾸기', owner: ev.owner, before: evBefore, after: describeEvent(ev) });
+        return { ok: true, event: pubEvent(ev) };
+      }
+
       case 'resetPin': {
         if (!me.isAdmin) return fail('관리자만 할 수 있어요.', 'forbidden');
         var t = store.getStaff(String(req.target || ''));
@@ -275,7 +320,7 @@ var Core = (function () {
   }
 
   return {
-    CATS: CATS, SAMPLE_ITEMS: SAMPLE_ITEMS,
+    CATS: CATS, SAMPLE_ITEMS: SAMPLE_ITEMS, MAX_TITLE: MAX_TITLE,
     catById: catById, nowKST: nowKST, parseDate: parseDate, addDays: addDays, weekday: weekday,
     hoursFor: hoursFor, lastBookable: lastBookable, isPast: isPast, slotStatus: slotStatus, statusMsg: statusMsg,
     handle: handle

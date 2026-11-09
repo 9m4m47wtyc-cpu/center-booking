@@ -15,6 +15,7 @@ function fakeSheet() {
   function put(r, c, v) {
     if (!text.has(c) && typeof v === 'string') {
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) v = new CtxDate(v + 'T00:00:00+09:00');
+      else if (/^\d{2}:\d{2}$/.test(v)) v = new CtxDate('1899-12-30T' + v + ':00+09:00');   // 시트의 '시간 값'
       else if (/^\d+$/.test(v)) v = Number(v);
     }
     cells.set(key(r, c), v);
@@ -60,7 +61,10 @@ Object.assign(ctx, {
   ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ text: t, setMimeType() { return this; } }) },
   Utilities: {
     getUuid: () => crypto.randomUUID(),
-    formatDate: d => new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10)   // 'yyyy-MM-dd' (한국 시간)만 쓴다
+    formatDate: (d, tz, pattern) => {   // 'yyyy-MM-dd'·'HH:mm' (한국 시간)만 쓴다
+      const s = new Date(d.getTime() + 9 * 3600000).toISOString();
+      return pattern === 'HH:mm' ? s.slice(11, 16) : s.slice(0, 10);
+    }
   }
 });
 for (const f of ['js/core.js', 'server/Code.gs']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), ctx, { filename: f });
@@ -72,7 +76,7 @@ const notSunday = d => { while (C.weekday(d) === 0) d = C.addDays(d, 1); return 
 
 /* 준비 */
 ctx.setup();
-assert.deepStrictEqual([...sheets.keys()], ['직원', '항목', '예약', '기록']);
+assert.deepStrictEqual([...sheets.keys()], ['직원', '항목', '예약', '일정', '기록']);
 sheets.get('직원').getRange(2, 1, 2, 2).setValues([['김관리', true], ['이직원', false]]);
 
 /* 로그인: 처음엔 비밀번호를 정한다 */
@@ -123,6 +127,26 @@ assert.strictEqual(call({ action: 'cancel', token: staff.token, id: book(admin, 
 /* 자기 예약 취소 → 시트에서 줄이 지워진다 */
 assert(call({ action: 'cancel', token: staff.token, id: mine.id }).ok);
 assert.strictEqual(call({ action: 'list', token: staff.token, from: day, to: day }).bookings.length, 2);
+
+/* 센터일정: 누구나 넣고(같은 시간에 여럿 가능), 넣은 사람·관리자만 바꾸거나 지운다 */
+const addEv = (who, more) => call(Object.assign({ action: 'addEvent', token: who.token, date: day, time: '14:00', title: '월례회의' }, more));
+assert(addEv(staff).ok);
+assert(addEv(admin, { title: '사례회의' }).ok);
+assert.strictEqual(addEv(staff, { title: '   ' }).error, '제목을 적어 주세요.');
+assert.strictEqual(addEv(staff, { time: '25:00' }).error, '시간이 올바르지 않아요.');
+assert.strictEqual(addEv(staff, { title: '=IMPORTXML("http://x","//a")' }).ok, false);   // 시트가 수식으로 실행할 제목은 막는다
+assert.strictEqual(addEv(staff, { date: C.addDays(C.nowKST().date, -1) }).ok, false);
+assert.strictEqual(cell('일정', 2, 3), '14:00');   // 시간이 시트에서 시간 값으로 바뀌지 않고 글자로 남았다
+const [staffEv, adminEv] = call({ action: 'list', token: staff.token, from: day, to: day }).events;
+assert.deepStrictEqual([staffEv.title, adminEv.title], ['월례회의', '사례회의']);
+assert.strictEqual(call({ action: 'updateEvent', token: staff.token, id: adminEv.id, date: day, time: '', title: '바꿈' }).code, 'forbidden');
+assert(call({ action: 'updateEvent', token: admin.token, id: staffEv.id, date: day, time: '', title: '월례회의 (종일)' }).ok);
+assert.match(cell('기록', 3, 6), /종일 월례회의 \(종일\)$/);
+sheets.get('일정').getRange(1, 3, 1000, 1).setNumberFormat('General');
+sheets.get('일정').getRange(3, 3).setValue('09:30');   // 누가 서식을 바꿔 시간 값이 들어가도 글자로 읽는다
+assert.strictEqual(call({ action: 'list', token: staff.token, from: day, to: day }).events[1].time, '09:30');
+assert(call({ action: 'deleteEvent', token: staff.token, id: staffEv.id }).ok);
+assert.strictEqual(call({ action: 'list', token: staff.token, from: day, to: day }).events.length, 1);
 
 /* 5번 틀리면 잠기고 기존 로그인도 끊긴다. 관리자가 초기화하면 풀린다 */
 for (let i = 0; i < 4; i++) assert.strictEqual(call({ action: 'login', name: '이직원', pin: '9999' }).code, 'badpin');

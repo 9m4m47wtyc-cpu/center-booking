@@ -7,6 +7,7 @@ var TABS = {
   '직원': { head: ['이름', '관리자', '잠김', '틀린 횟수', '비밀번호(자동)', '소금(자동)'], checks: [2, 3] },
   '항목': { head: ['분류', '이름', '코드(자동)'] },
   '예약': { head: ['코드', '날짜', '시', '항목코드', '용도', '예약자', '만든 때', '바꾼 때'] },
+  '일정': { head: ['코드', '날짜', '시간', '제목', '넣은 사람', '만든 때', '바꾼 때'] },
   '기록': { head: ['때', '한 사람', '한 일', '예약자', '전', '후'] }
 };
 
@@ -49,9 +50,9 @@ function tab_(name) {
     .requireValueInList(Core.CATS.map(function (x) { return x.name; }), true).build());
   return sh;
 }
-/* 누가 시트에서 직접 고쳐 날짜 값이 됐어도 '2026-01-31' 글자로 읽는다 */
-function day_(v) {
-  return v instanceof Date ? Utilities.formatDate(v, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd') : String(v);
+/* 누가 시트에서 직접 고쳐 날짜·시간 값이 됐어도 '2026-01-31'·'14:00' 같은 글자로 읽는다 */
+function txt_(v, pattern) {
+  return v instanceof Date ? Utilities.formatDate(v, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), pattern) : String(v);
 }
 function row_(b) { return [b.id, b.date, b.hour, b.item, b.purpose, b.owner, b.created, b.updated]; }
 
@@ -109,7 +110,7 @@ SheetStore.prototype.findItem = function (id) {
 SheetStore.prototype.bookings_ = function () {
   var t = this.rows_('예약');
   if (!t.list) t.list = t.vals.map(function (v, i) {
-    return { row: i + 2, id: String(v[0]), date: day_(v[1]), hour: Number(v[2]), item: String(v[3]),
+    return { row: i + 2, id: String(v[0]), date: txt_(v[1], 'yyyy-MM-dd'), hour: Number(v[2]), item: String(v[3]),
              purpose: String(v[4]), owner: String(v[5]), created: String(v[6]), updated: String(v[7]) };
   }).filter(function (b) { return b.id; });
   return t.list;
@@ -130,3 +131,26 @@ SheetStore.prototype.removeBooking = function (id) {
   if (b) this.rows_('예약').sh.deleteRow(b.row);
 };
 SheetStore.prototype.addLog = function (x) { tab_('기록').appendRow([x.time, x.actor, x.action, x.owner, x.before, x.after]); };
+
+/* 센터일정: 코드 | 날짜 | 시간 | 제목 | 넣은 사람 | 만든 때 | 바꾼 때 */
+function evRow_(e) { return [e.id, e.date, e.time, e.title, e.owner, e.created, e.updated]; }
+SheetStore.prototype.events_ = function () {
+  var t = this.rows_('일정');
+  if (!t.list) t.list = t.vals.map(function (v, i) {
+    return { row: i + 2, id: String(v[0]), date: txt_(v[1], 'yyyy-MM-dd'), time: txt_(v[2], 'HH:mm'), title: String(v[3]),
+             owner: String(v[4]), created: String(v[5]), updated: String(v[6]) };
+  }).filter(function (e) { return e.id; });
+  return t.list;
+};
+SheetStore.prototype.listEvents = function (from, to) {
+  return this.events_().filter(function (e) { return e.date >= from && e.date <= to; });
+};
+SheetStore.prototype.findEvent = function (id) {
+  return this.events_().filter(function (e) { return e.id === id; })[0] || null;
+};
+SheetStore.prototype.addEvent = function (e) { this.rows_('일정').sh.appendRow(evRow_(e)); };
+SheetStore.prototype.updateEvent = function (e) { this.rows_('일정').sh.getRange(e.row, 1, 1, 7).setValues([evRow_(e)]); };
+SheetStore.prototype.removeEvent = function (id) {
+  var e = this.findEvent(id);
+  if (e) this.rows_('일정').sh.deleteRow(e.row);
+};
