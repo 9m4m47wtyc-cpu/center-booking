@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>공용 예약</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 로그인 -->
+  <section id="login" class="screen" hidden>
+    <div class="login-box">
+      <img src="icons/icon-192.png" alt="" class="logo">
+      <h1>공용 예약</h1>
+      <p class="sub">방 · 차량 · 검사도구<br>우리 센터 직원 전용</p>
+      <div id="loginDemo" class="demo-note" hidden>체험 모드입니다. 아무 이름이나 고르고, 숫자 4자리로 비밀번호를 정해 보세요.</div>
+      <label class="field">내 이름
+        <select id="loginName"><option value="">불러오는 중…</option></select>
+      </label>
+      <p id="loginHint" class="hint"></p>
+      <label class="field">비밀번호 (숫자 4자리)
+        <input id="pin1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off">
+      </label>
+      <label class="field" id="pin2Row" hidden>비밀번호 한 번 더
+        <input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off">
+      </label>
+      <button id="loginBtn" class="btn primary wide" data-act="login">시작하기</button>
+      <p id="loginMsg" class="msg" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- 시간표 -->
+  <section id="main" class="screen" hidden>
+    <div id="bar" class="bar">
+      <header class="top">
+        <div class="brand">공용 예약</div>
+        <button class="who" data-act="menu" id="who" aria-label="내 메뉴"></button>
+      </header>
+      <nav class="datebar">
+        <button class="nav" data-act="prev" aria-label="이전 달">◀</button>
+        <div class="datepick" id="monthText" aria-live="polite"></div>
+        <button class="nav" data-act="next" aria-label="다음 달">▶</button>
+        <button class="today" data-act="today">오늘</button>
+      </nav>
+      <nav id="cats" class="cats" aria-label="분류"></nav>
+    </div>
+    <div id="demoBanner" class="demo-banner" hidden>체험 모드 · 예약은 이 기기에만 저장돼요 (다른 직원에게 보이지 않음)</div>
+    <div id="cal" class="cal-wrap"></div>
+    <div class="legend">
+      <span><i class="sw mine"></i>내 예약</span>
+      <span><i class="sw other"></i>다른 사람 예약</span>
+      <span>날짜를 누르면 그날 시간표가 열려요</span>
+    </div>
+    <p class="notice">내담자 이름·학교명·연락처 같은 정보는 이 앱에 적지 않습니다.</p>
+  </section>
+
+  <!-- 아래에서 올라오는 창 -->
+  <div id="sheet" class="sheet-back" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" id="sheetBody"></div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
